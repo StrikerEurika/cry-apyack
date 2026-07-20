@@ -1,19 +1,45 @@
 [project]
 name = "cry-apyack"
 version = "0.1.0"
-description = "Add your description here"
+description = "FastAPI service for high-resolution crack detection using findcrack"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.139.0",
-    "uvicorn>=0.34.0",
-    "python-multipart>=0.0.20",
-    "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0",
-    "Pillow>=10.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.28.0",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "Pillow>=10.2.0",
     "numpy>=1.24.0",
     "findcrack",
 ]
 
+[project.optional-dependencies]
+gpu = [
+    "findcrack[standard]",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "httpx>=0.27.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 [tool.uv.sources]
 findcrack = { path = "../findcrack", editable = true }
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
+
+[tool.uv.sources.torch]
+index = "pytorch"
+[tool.uv.sources.torchvision]
+index = "pytorch"
+[tool.uv.sources.torchaudio]
+index = "pytorch"
