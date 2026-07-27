@@ -46,6 +46,10 @@ class PredictResponse(BaseModel):
     bounding_boxes: list[list[int]]
     detections: list[CrackDetectionDetail]
     contours: list[list[list[int]]] | None = None
+    image_base64: str | None = Field(
+        None,
+        description="Base64 encoded data URI (data:image/png;base64,...) of the rendered prediction image if include_image=True",
+    )
 
 
 class BatchPredictResponse(BaseModel):

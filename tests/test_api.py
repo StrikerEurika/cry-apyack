@@ -103,4 +103,29 @@ def test_predict_endpoint_default_values():
         assert data["overlap_ratio"] == 0.2
         assert data["use_tta"] is False
         assert data["use_clahe"] is True
+        assert data["image_base64"] is None
+
+
+def test_predict_include_image():
+    with client as c:
+        img_bytes = create_test_image_bytes(256, 256)
+        files = {"file": ("test.png", img_bytes, "image/png")}
+        response = c.post("/predict?include_image=true&render_type=overlay", files=files)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["image_base64"] is not None
+        assert data["image_base64"].startswith("data:image/png;base64,")
+
+
+def test_predict_response_format_image():
+    with client as c:
+        img_bytes = create_test_image_bytes(256, 256)
+        files = {"file": ("test.png", img_bytes, "image/png")}
+        response = c.post("/predict?response_format=image&render_type=overlay", files=files)
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert len(response.content) > 0
+
+
+
 

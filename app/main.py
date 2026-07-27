@@ -1,3 +1,4 @@
+import base64
 import logging
 from contextlib import asynccontextmanager
 
@@ -82,14 +83,33 @@ async def model_detail(model_name: str):
 @app.post(
     "/predict",
     response_model=PredictResponse,
+    responses={
+        200: {
+            "description": "Successful Prediction. Returns PredictResponse JSON or image/png depending on response_format.",
+            "content": {
+                "application/json": {"schema": {"$ref": "#/components/schemas/PredictResponse"}},
+                "image/png": {"description": "Rendered output image (overlay, visualization, or mask)"},
+            },
+        }
+    },
     summary="Analyze image for crack detections",
-    description="Perform crack detection analysis on an uploaded image file, returning count, coverage, bounding boxes, and optional contours.",
+    description="Perform crack detection analysis on an uploaded image file. Set response_format='image' to display the rendered prediction image directly inside the API docs interface.",
 )
 async def predict(
     file: UploadFile = File(..., description="Image file to analyze for cracks (e.g. PNG, JPEG format)."),
     model_name: RegisteredModel = Query(
         RegisteredModel(settings.default_model),
         description="Target registered model variant to run inference. Displays available models registered in the package.",
+    ),
+    response_format: str = Query(
+        "json",
+        pattern="^(json|image)$",
+        description="Response format: 'json' for full analysis payload or 'image' to display the rendered prediction image directly in API docs interface. Default: 'json'.",
+    ),
+    render_type: str = Query(
+        "overlay",
+        pattern="^(overlay|visualization|mask)$",
+        description="Type of rendered image output when response_format='image' or include_image=true: 'overlay', 'visualization', or 'mask'. Default: 'overlay'.",
     ),
     confidence_threshold: float = Query(
         settings.default_confidence_threshold,
@@ -121,6 +141,10 @@ async def predict(
         False,
         description="Whether to include detailed pixel contour coordinates in the response payload. Default: False.",
     ),
+    include_image: bool = Query(
+        False,
+        description="Whether to include base64-encoded rendered image in JSON response payload. Default: False.",
+    ),
 ):
     raw = await file.read()
     try:
@@ -140,6 +164,19 @@ async def predict(
         use_tta=use_tta,
         use_clahe=use_clahe,
     )
+
+    render_map = {
+        "overlay": "overlay",
+        "visualization": "visualization",
+        "mask": "binary_mask",
+    }
+    arr: np.ndarray = res[render_map[render_type]]
+    if render_type == "mask":
+        arr = np.stack([arr, arr, arr], axis=-1)
+
+    if response_format == "image":
+        content = ndarray_to_bytes(arr)
+        return Response(content=content, media_type="image/png")
 
     boxes = res["bounding_boxes"]
     h, w, _ = res["original_image"].shape
@@ -162,6 +199,12 @@ async def predict(
     if include_contours and "contours" in res:
         contours_data = [c.reshape(-1, 2).tolist() for c in res["contours"]]
 
+    image_b64 = None
+    if include_image:
+        png_bytes = ndarray_to_bytes(arr)
+        b64_str = base64.b64encode(png_bytes).decode("utf-8")
+        image_b64 = f"data:image/png;base64,{b64_str}"
+
     target_model_name = model_name.value if hasattr(model_name, "value") else str(model_name)
 
     return PredictResponse(
@@ -180,13 +223,22 @@ async def predict(
         bounding_boxes=boxes,
         detections=detections,
         contours=contours_data,
+        image_base64=image_b64,
     )
 
 
 @app.post(
     "/predict/image",
+    responses={
+        200: {
+            "description": "Rendered crack detection output image",
+            "content": {
+                "image/png": {"description": "Rendered image (overlay, visualization, or mask)"},
+            },
+        }
+    },
     summary="Analyze image and render visual output image",
-    description="Perform crack detection analysis on an uploaded image file and return the rendered visual result (overlay, visualization, or mask) as PNG bytes.",
+    description="Perform crack detection analysis on an uploaded image file and return the rendered visual result (overlay, visualization, or mask) as PNG bytes for display in the API docs interface.",
 )
 async def predict_image(
     file: UploadFile = File(..., description="Image file to analyze for cracks (e.g. PNG, JPEG format)."),
