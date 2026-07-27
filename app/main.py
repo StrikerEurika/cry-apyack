@@ -15,6 +15,7 @@ from app.schemas import (
     ModelDetailResponse,
     ModelsResponse,
     PredictResponse,
+    RegisteredModel,
 )
 from app.services.inference import model_manager
 from app.utils import bytes_to_ndarray, ndarray_to_bytes
@@ -78,16 +79,48 @@ async def model_detail(model_name: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.post("/predict", response_model=PredictResponse)
+@app.post(
+    "/predict",
+    response_model=PredictResponse,
+    summary="Analyze image for crack detections",
+    description="Perform crack detection analysis on an uploaded image file, returning count, coverage, bounding boxes, and optional contours.",
+)
 async def predict(
-    file: UploadFile = File(...),
-    model_name: str | None = Query(None, description="Target model variant"),
-    confidence_threshold: float | None = Query(None, ge=0.0, le=1.0),
-    patch_size: int | None = Query(None, ge=128, le=2048),
-    overlap_ratio: float | None = Query(None, ge=0.0, le=0.5),
-    use_tta: bool | None = Query(None),
-    use_clahe: bool | None = Query(None),
-    include_contours: bool = Query(False),
+    file: UploadFile = File(..., description="Image file to analyze for cracks (e.g. PNG, JPEG format)."),
+    model_name: RegisteredModel = Query(
+        RegisteredModel(settings.default_model),
+        description="Target registered model variant to run inference. Displays available models registered in the package.",
+    ),
+    confidence_threshold: float = Query(
+        settings.default_confidence_threshold,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence threshold for crack detection filtering (range: 0.0 to 1.0). Default: 0.5.",
+    ),
+    patch_size: int = Query(
+        settings.default_patch_size,
+        ge=128,
+        le=2048,
+        description="Patch size in pixels for sliding-window inference (range: 128 to 2048). Default: 512.",
+    ),
+    overlap_ratio: float = Query(
+        settings.default_overlap_ratio,
+        ge=0.0,
+        le=0.5,
+        description="Overlap ratio between adjacent patches during sliding-window inference (range: 0.0 to 0.5). Default: 0.2.",
+    ),
+    use_tta: bool = Query(
+        settings.use_tta,
+        description="Enable Test-Time Augmentation (TTA) for enhanced detection accuracy. Default: False.",
+    ),
+    use_clahe: bool = Query(
+        settings.use_clahe,
+        description="Enable CLAHE image contrast preprocessing before inference. Default: True.",
+    ),
+    include_contours: bool = Query(
+        False,
+        description="Whether to include detailed pixel contour coordinates in the response payload. Default: False.",
+    ),
 ):
     raw = await file.read()
     try:
@@ -129,32 +162,53 @@ async def predict(
     if include_contours and "contours" in res:
         contours_data = [c.reshape(-1, 2).tolist() for c in res["contours"]]
 
+    target_model_name = model_name.value if hasattr(model_name, "value") else str(model_name)
+
     return PredictResponse(
         filename=file.filename or "unknown",
         width=w,
         height=h,
-        model_name=res.get("active_model", settings.default_model),
+        model_name=res.get("active_model", target_model_name),
         crack_count=len(boxes),
         crack_coverage_percentage=coverage_pct,
         total_crack_area_pixels=crack_pixels,
-        confidence_threshold=confidence_threshold or settings.default_confidence_threshold,
-        patch_size=patch_size or settings.default_patch_size,
-        overlap_ratio=overlap_ratio or settings.default_overlap_ratio,
-        use_tta=use_tta if use_tta is not None else settings.use_tta,
-        use_clahe=use_clahe if use_clahe is not None else settings.use_clahe,
+        confidence_threshold=confidence_threshold,
+        patch_size=patch_size,
+        overlap_ratio=overlap_ratio,
+        use_tta=use_tta,
+        use_clahe=use_clahe,
         bounding_boxes=boxes,
         detections=detections,
         contours=contours_data,
     )
 
 
-@app.post("/predict/image")
+@app.post(
+    "/predict/image",
+    summary="Analyze image and render visual output image",
+    description="Perform crack detection analysis on an uploaded image file and return the rendered visual result (overlay, visualization, or mask) as PNG bytes.",
+)
 async def predict_image(
-    file: UploadFile = File(...),
-    model_name: str | None = Query(None),
-    render_type: str = Query("overlay", pattern="^(overlay|visualization|mask)$"),
-    confidence_threshold: float | None = Query(None, ge=0.0, le=1.0),
-    use_tta: bool | None = Query(None),
+    file: UploadFile = File(..., description="Image file to analyze for cracks (e.g. PNG, JPEG format)."),
+    model_name: RegisteredModel = Query(
+        RegisteredModel(settings.default_model),
+        description="Target registered model variant to run inference. Displays available models registered in the package.",
+    ),
+    render_type: str = Query(
+        "overlay",
+        pattern="^(overlay|visualization|mask)$",
+        description="Render mode for output image: 'overlay', 'visualization', or 'mask'. Default: 'overlay'.",
+    ),
+    confidence_threshold: float = Query(
+        settings.default_confidence_threshold,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence threshold for crack detection (range: 0.0 to 1.0). Default: 0.5.",
+    ),
+    use_tta: bool = Query(
+        settings.use_tta,
+        description="Enable Test-Time Augmentation (TTA). Default: False.",
+    ),
 ):
     raw = await file.read()
     image = bytes_to_ndarray(raw)
@@ -178,3 +232,4 @@ async def predict_image(
 
     content = ndarray_to_bytes(arr)
     return Response(content=content, media_type="image/png")
+

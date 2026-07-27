@@ -19,7 +19,7 @@ class ModelManager:
 
     def get_pipeline(
         self,
-        model_name: str | None = None,
+        model_name: Any = None,
         patch_size: int | None = None,
         overlap_ratio: float | None = None,
         confidence_threshold: float | None = None,
@@ -27,7 +27,9 @@ class ModelManager:
         use_clahe: bool | None = None,
         blend_mode: str | None = None,
     ) -> CrackInferencePipeline:
-        target_model = model_name or self.default_model_name
+        target_model = (
+            model_name.value if hasattr(model_name, "value") else model_name
+        ) or self.default_model_name
 
         if target_model not in self._loaded_pipelines:
             self.load_model(target_model)
@@ -80,7 +82,7 @@ class ModelManager:
     def predict(
         self,
         image: np.ndarray,
-        model_name: str | None = None,
+        model_name: Any = None,
         confidence_threshold: float | None = None,
         patch_size: int | None = None,
         overlap_ratio: float | None = None,
@@ -88,8 +90,12 @@ class ModelManager:
         use_clahe: bool | None = None,
         blend_mode: str | None = None,
     ) -> dict[str, Any]:
+        target_model_name = (
+            model_name.value if hasattr(model_name, "value") else model_name
+        ) or self.default_model_name
+
         pipeline = self.get_pipeline(
-            model_name=model_name,
+            model_name=target_model_name,
             patch_size=patch_size,
             overlap_ratio=overlap_ratio,
             confidence_threshold=confidence_threshold,
@@ -100,7 +106,7 @@ class ModelManager:
 
         # Call findcrack pipeline (now supports np.ndarray input)
         raw_result = pipeline.predict(image)
-        raw_result["active_model"] = model_name or self.default_model_name
+        raw_result["active_model"] = target_model_name
         return raw_result
 
 
