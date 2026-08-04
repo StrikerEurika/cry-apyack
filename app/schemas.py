@@ -1,11 +1,11 @@
 from enum import Enum
 from pydantic import BaseModel, Field
 
-from app.services.inference import model_manager
-
 
 def get_registered_model_enum() -> type[Enum]:
     """Generates an Enum of available models registered in findcrack."""
+    from app.services.inference import model_manager
+
     models = model_manager.available_models()
     return Enum("RegisteredModel", {m: m for m in models}, type=str)
 
