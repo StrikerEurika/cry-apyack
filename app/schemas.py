@@ -10,7 +10,10 @@ def get_registered_model_enum() -> type[Enum]:
     return Enum("RegisteredModel", {m: m for m in models}, type=str)
 
 
-RegisteredModel = get_registered_model_enum()
+def __getattr__(name: str):
+    if name == "RegisteredModel":
+        return get_registered_model_enum()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class HealthResponse(BaseModel):
@@ -49,6 +52,10 @@ class PredictResponse(BaseModel):
     image_base64: str | None = Field(
         None,
         description="Base64 encoded data URI (data:image/png;base64,...) of the rendered prediction image if include_image=True",
+    )
+    mask_base64: str | None = Field(
+        None,
+        description="Base64 encoded binary mask (PNG) for remote stitching.",
     )
 
 

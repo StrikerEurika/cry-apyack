@@ -145,6 +145,10 @@ async def predict(
         False,
         description="Whether to include base64-encoded rendered image in JSON response payload. Default: False.",
     ),
+    force_single_forward: bool = Query(
+        False,
+        description="Assert image <= patch_size for single-forward inference. Default: False.",
+    ),
 ):
     raw = await file.read()
     try:
@@ -163,6 +167,7 @@ async def predict(
         overlap_ratio=overlap_ratio,
         use_tta=use_tta,
         use_clahe=use_clahe,
+        force_single_forward=force_single_forward,
     )
 
     render_map = {
@@ -181,9 +186,14 @@ async def predict(
     boxes = res["bounding_boxes"]
     h, w, _ = res["original_image"].shape
     binary_mask = res["binary_mask"]
-    crack_pixels = int(np.count_nonzero(binary_mask))
+    crack_pixels = int(np.count_nonzero(binary_mask)) if binary_mask is not None else 0
     total_pixels = h * w
     coverage_pct = round((crack_pixels / total_pixels) * 100.0, 4)
+
+    mask_b64 = None
+    if binary_mask is not None and np.count_nonzero(binary_mask) > 0:
+        mask_bytes = ndarray_to_bytes(binary_mask)
+        mask_b64 = base64.b64encode(mask_bytes).decode("utf-8")
 
     detections = [
         CrackDetectionDetail(
@@ -224,6 +234,7 @@ async def predict(
         detections=detections,
         contours=contours_data,
         image_base64=image_b64,
+        mask_base64=mask_b64,
     )
 
 

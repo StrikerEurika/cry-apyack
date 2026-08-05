@@ -1,4 +1,6 @@
+import copy
 import logging
+import threading
 from typing import Any
 
 import numpy as np
@@ -16,6 +18,7 @@ class ModelManager:
     def __init__(self) -> None:
         self._loaded_pipelines: dict[str, CrackInferencePipeline] = {}
         self.default_model_name: str = settings.default_model
+        self._load_lock = threading.Lock()
 
     def get_pipeline(
         self,
@@ -26,31 +29,47 @@ class ModelManager:
         use_tta: bool | None = None,
         use_clahe: bool | None = None,
         blend_mode: str | None = None,
+        force_single_forward: bool = False,
     ) -> CrackInferencePipeline:
         target_model = (
             model_name.value if hasattr(model_name, "value") else model_name
         ) or self.default_model_name
 
         if target_model not in self._loaded_pipelines:
-            self.load_model(target_model)
+            with self._load_lock:
+                if target_model not in self._loaded_pipelines:
+                    self.load_model(target_model)
 
         pipeline = self._loaded_pipelines[target_model]
 
-        # Apply runtime overrides if provided
-        if patch_size is not None:
-            pipeline.patch_size = patch_size
-        if overlap_ratio is not None:
-            pipeline.overlap_ratio = overlap_ratio
-        if confidence_threshold is not None:
-            pipeline.confidence_threshold = confidence_threshold
-        if use_tta is not None:
-            pipeline.use_tta = use_tta
-        if use_clahe is not None and hasattr(pipeline, "preprocessor"):
-            pipeline.preprocessor.use_clahe = use_clahe
-        if blend_mode is not None:
-            pipeline.blend_mode = blend_mode
+        try:
+            per_request = copy.copy(pipeline)
+        except Exception:
+            per_request = pipeline
 
-        return pipeline
+        if force_single_forward:
+            if hasattr(per_request, "patch_size") and per_request.patch_size > 512:
+                raise ValueError(
+                    f"force_single_forward requires image <= patch_size, but patch_size={per_request.patch_size} > 512"
+                )
+            per_request.use_tta = False
+            per_request.overlap_ratio = 0.0
+            per_request.patch_size = 512
+
+        if patch_size is not None:
+            per_request.patch_size = patch_size
+        if overlap_ratio is not None:
+            per_request.overlap_ratio = overlap_ratio
+        if confidence_threshold is not None:
+            per_request.confidence_threshold = confidence_threshold
+        if use_tta is not None:
+            per_request.use_tta = use_tta
+        if use_clahe is not None and hasattr(per_request, "preprocessor"):
+            per_request.preprocessor.use_clahe = use_clahe
+        if blend_mode is not None:
+            per_request.blend_mode = blend_mode
+
+        return per_request
 
     def load_model(self, model_name: str) -> None:
         logger.info("Loading findcrack model '%s' on device='%s'...", model_name, settings.device)
@@ -89,6 +108,7 @@ class ModelManager:
         use_tta: bool | None = None,
         use_clahe: bool | None = None,
         blend_mode: str | None = None,
+        force_single_forward: bool = False,
     ) -> dict[str, Any]:
         target_model_name = (
             model_name.value if hasattr(model_name, "value") else model_name
@@ -102,9 +122,9 @@ class ModelManager:
             use_tta=use_tta,
             use_clahe=use_clahe,
             blend_mode=blend_mode,
+            force_single_forward=force_single_forward,
         )
 
-        # Call findcrack pipeline (now supports np.ndarray input)
         raw_result = pipeline.predict(image)
         raw_result["active_model"] = target_model_name
         return raw_result
